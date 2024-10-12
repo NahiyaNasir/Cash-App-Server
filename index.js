@@ -19,7 +19,7 @@ app.get("/", (req, res) => {
   res.send("cash app is running");
 });
 
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const { status } = require("init");
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.gze7wpc.mongodb.net/?appName=Cluster0`;
 
@@ -49,21 +49,20 @@ async function run() {
     //   verify token
     const verifyToken = (req, res, next) => {
       if (!req.headers.authorization) {
-        return res.status(403).send({ message: "Forbidden access" });  // Add 'return' here
+        return res.status(403).send({ message: "Forbidden access" }); // Add 'return' here
       }
-    
+
       const token = req.headers.authorization.split(" ")[1];
+      // console.log(token);
       jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decode) => {
         if (err) {
-          return res.status(401).send({ message: "Unauthorized access" });  // Add 'return' here
+          return res.status(401).send({ message: "Unauthorized access" }); // Add 'return' here
         }
-    
+
         req.decoded = decode;
         next();
       });
     };
-    
-
 
     app.get("/userInfo", verifyToken, async (req, res) => {
       user = req.decoded;
@@ -71,58 +70,109 @@ async function run() {
       const result = await userCollection.findOne({ email: req.decoded.email });
       // console.log(result);
       res.send(result);
-  });
+    });
     // jwt
     app.post("/jwt", async (req, res) => {
       const user = req.body;
       // console.log(user);
-      const token = jwt.sign(user,process.env.ACCESS_TOKEN_SECRET );
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET);
       res.send({ token });
     });
     //  role based api
- 
+
     app.get("/role/:email", async (req, res) => {
       try {
         const { email } = req.params;
         const user = await userCollection.findOne({ email });
-        
         // Check if user exists
         if (!user) {
           return res.status(404).send({ message: "User not found" });
         }
-    
+
         // Extract the role if the user exists
         const { role } = user;
-        console.log(role);
-        return res.send({ role });  // Ensure the response is sent in a proper format
+        // console.log(`Role of user with email ${email}: ${role}`);
+        return res.send({ role }); // Ensure the response is sent in a proper format
       } catch (error) {
         console.log(error);
         return res.status(500).send({ message: "Internal server error" });
       }
     });
-    
+    app.get("/allUser", async (req, res) => {
+      try {
+        const user = req.decoded;
+        // if (!user.role === admin) {
+        //   return res.status(403).json({ message: "Access denied. Admin only." });
+        // }
+        const users = await userCollection.find().toArray();
+        res.send(users);
+      } catch (error) {
+        res.status(403).json(error.message);
+      }
+    });
+    app.patch("/allUser/:id/status", async (req, res) => {
+      try {
+        const userId  = req.params.id;
+        const  status  = req.body.status; 
+        const  role  = req.body.role;
+        const  button  = req.body.button;
+        let updateDoc = {
+          $set: {
+              status: button,
+          },
+      };
+      if (button === "approved" && status === "pending") {
+          if (role === "user") {
+              updateDoc = {
+                  $set: {
+                      status: "approved",
+                      balance: 40,
+                  },
+              };
+          }
+          if (role === "agent") {
+              updateDoc = {
+                  $set: {
+                      status: "approved",
+                      balance: 10000,
+                  },
+              };
+          }
+      }
+        const result = await userCollection.updateOne({_id:new ObjectId(userId)},
+         updateDoc
+        );
+        res.send(result)
+        // if (result.modifiedCount === 1) {
+        //   res.status(200).json({ message: `User status updated to ${status}` });
+        // } else {
+        //   res.status(404).json({ message: "User not found" });
+        // }
+      } catch (error) {
+        res
+          .status(500)
+          .json(error.message );
+      }
+    });
 
-  
     //  create user
     app.post("/createUser", async (req, res) => {
       const user = req.body;
       const hashPin = bcrypt.hashSync(user.pin, 10);
-    
+
       const isExiting = await userCollection.findOne({ email: user.email });
       if (isExiting) {
-        return res.send({ message: "User already exists" });  // Add 'return' here
+        return res.send({ message: "User already exists" }); // Add 'return' here
       }
-    
+
       const doc = {
         ...user,
         pin: hashPin,
       };
-    
-      const result = await userCollection.insertOne(doc);
-      return res.send(result);  // Add 'return' here as well to ensure no more code runs after sending the response
-    });
-    
 
+      const result = await userCollection.insertOne(doc);
+      return res.send(result); // Add 'return' here as well to ensure no more code runs after sending the response
+    });
 
     //  login user check
 
@@ -131,18 +181,22 @@ async function run() {
         const email = req.params.email;
         const pin = req.body.pin;
         const user = await userCollection.findOne({ email });
-    
+
         // User does not exist
         if (!user) {
-          return res.status(403).send({ message: "Invalid credentials", status: "403" });
+          return res
+            .status(403)
+            .send({ message: "Invalid credentials", status: "403" });
         }
-    
+
         // Pin does not match
         const pinMatching = bcrypt.compareSync(pin, user.pin);
         if (!pinMatching) {
-          return res.status(403).send({ message: "Invalid credentials", status: "403" });
+          return res
+            .status(403)
+            .send({ message: "Invalid credentials", status: "403" });
         }
-    
+
         // If everything is fine, return the user object
         return res.send(user);
       } catch (error) {
@@ -151,9 +205,6 @@ async function run() {
         return res.status(500).send({ message: "Internal server error" });
       }
     });
-    ;
-    
-
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
